@@ -42,19 +42,29 @@ class RNNLM_Model(nn.Module):
 
     ### YOUR CODE HERE
     ### Define the Embedding layer. Hint: check nn.Embedding
+    self.embedding = nn.Embedding(num_embeddings=self.config.vocab_size,embedding_dim=self.config.embed_size)
 
-    ### Define the H, I, b1 in HW4. Hint: check nn.Parameter
-
+    ### Define the H, I, b1 in PP2. Hint: check nn.Parameter
+    self.b1 = torch.zeros(1,self.config.hidden_size) #correlates to h(0) ?
+    self.H = torch.tensor(nn.Parameter(torch.Tensor(self.config.hidden_size, self.config.hidden_size))) #torch.sigmoid(Wh*h[t-1]+We*E[x[t]]+self.b1)
+    self.I = torch.tensor(nn.Parameter(torch.Tensor(self.config.embed_size, self.config.hidden_size)))    # E(x[t]) ?
     ### Define the projection layer, U, b2 in HW4
+    self.proj = 0
+    self.U = torch.tensor(nn.Parameter(torch.Tensor(self.config.hidden_size,self.config.vocab_size)))
+    self.b2 = torch.zeros((1,self.config.vocab_size))
 
     ## Define the input dropout and output dropout.
-    self.input_drop = 
-    self.output_drop = 
+    self.input_drop = nn.Dropout(self.config.dropout)
+    self.output_drop =nn.Dropout(self.config.dropout)
     ### END YOUR CODE
 
     ## Initialize the weights. 
     weights_init(self)
-    
+
+    """Where to integrate perplexity? --> equal to exponential of the cross entropy ( lower is better)"""
+    """exploding gradient function theta = theta_old - alpha*gradient(SGD of J(theta)"""
+    """For one step: J(theta) = - sum(y(t)*log(pred(t)) for entire training = (1/T)sum(J(theta))"""
+    """Hidden state is completely changed at every timestep  h(t)=  sigmoid(Wh*h(t-1)+Wx*x(t)+b)"""
 
   def forward(self, input_x, initial_state):
     """Build the model."""
@@ -66,7 +76,7 @@ class RNNLM_Model(nn.Module):
     rnn_outputs, last_state = self.add_model(input_x, initial_state)
     #Compute the prediction of different steps 
     outputs = self.add_projection(rnn_outputs)
-    return outputs, final_state
+    return outputs, last_state
     
 
   def add_embedding(self, input_x):
@@ -82,7 +92,19 @@ class RNNLM_Model(nn.Module):
       inputs: List of length num_steps, each of whose elements should be
               a tensor of shape (batch_size, embed_size).
     """
+    # torch.nn.Embedding(num_embeddings, embedding_dim, padding_idx=None)
+    # num_embeddings = size of the dictionary of embeddings
+    # embedding_dim = the size of each embedding vector
+    """>>> # an Embedding module containing 10 tensors of size 3
+      embedding = nn.Embedding(10, 3)
+      # a batch of 2 samples of 4 indices each
+      input = torch.LongTensor([[1,2,4,5],[4,3,2,9]])
+      embedding(input)"""
     ### YOUR CODE HERE
+    input_x = self.embedding(input_x)
+    input_x = input_x.permute(1,0,2)
+    input_x = torch.split(input_x,1)
+    input_x = [torch.squeeze(x) for x in input_x]
 
     ### END YOUR CODE
     return input_x
@@ -105,15 +127,31 @@ class RNNLM_Model(nn.Module):
               a tensor of shape (batch_size, embed_size).
     Returns:
       outputs: List of length num_steps, each of whose elements should be
-               a tensor of shape (batch_size, hidden_size)
+               a tensor of shape (batch_size, hidden_size)    64x100 100x100 + 64x50 50x100 + 1x50 ==64x100
                The final state in this batch, defined as the final_state
     """
     input_x = [self.input_drop(x) for x in input_x]
-
     ### YOUR CODE HERE
+      #  implement sigmoid(h(t−1)H + e(t)I + b1)!
+
+    outputs = []
+    for idx,ipt in enumerate(input_x):
+      ipt = torch.unsqueeze(ipt,0)
+      if idx == 0:
+        rnn_outputs = torch.sigmoid((torch.matmul(initial_state,self.H) + torch.matmul(ipt,self.I) + self.b1))
+        rnn_outputs = self.output_drop(rnn_outputs)
+        outputs.append(rnn_outputs)
+      else:
+        rnn_outputs = torch.sigmoid((torch.matmul(outputs[idx-1],self.H) + torch.matmul(ipt,self.I) + self.b1))
+        rnn_outputs = self.output_drop(rnn_outputs)
+        outputs.append(rnn_outputs)
+      if idx == (len(input_x)-1):
+        final_state = rnn_outputs
+
+    #rnn_outputs = [self.output_drop(x) for x in rnn_outputs]
 
     ### END YOUR CODE
-    return rnn_outputs, final_state
+    return outputs, final_state
 
 
   def add_projection(self, rnn_outputs):
@@ -130,7 +168,12 @@ class RNNLM_Model(nn.Module):
                (batch_size, len(vocab))
     """
     ### YOUR CODE HERE
-
+    # implement softmax(h(t)U + b2),
+    ## outputs = nn.Linear(2*model_dim, self.config.vocal_size)
+    outputs = []
+    for rnn_output in rnn_outputs:
+      output = torch.squeeze(torch.softmax(torch.matmul(rnn_output,self.U) + self.b2,1))
+      outputs.append(output)
     ### END YOUR CODE
     return outputs
 
@@ -141,10 +184,11 @@ class RNNLM_Model(nn.Module):
         Hint: If you are using GPU, the init_hidden should be attached to cuda.
     """
     ### YOUR CODE HERE
-
+    #Variable(torch.zeros(1,???, self.config.hidden_size))
+    init_state = torch.zeros(1, self.config.hidden_size)
     ### END YOUR CODE
     return init_state
-    
+
 
 def generate_text(model, config, vocab,  starting_text='<eos>',
                   stop_length=100, stop_tokens=None, temp=1.0):
@@ -216,8 +260,8 @@ def load_data(debug=False):
   return encoded_train, encoded_valid, encoded_test, vocab
 
 
-def compute_loss(ouputs, y, criterion):
-  """Compute the loss given the ouput, ground truth y, and the criterion function.
+def compute_loss(outputs, y, criterion):
+  """Compute the loss given the output, ground truth y, and the criterion function.
 
   Hint: criterion should be cross entropy.
 
@@ -229,6 +273,17 @@ def compute_loss(ouputs, y, criterion):
     output: A 0-d tensor--averaged loss (scalar)
   """ 
   ### YOUR CODE HERE
+  """We want to predict each word and estimate loss for each position"""
+  """We predict a probability distribution over words"""
+  """"Timestamp 1: what probability did you give for the next (correct) word 
+  --> if not 1 --> there is a loss"""
+  predictions = torch.cat(outputs,0)
+  predictions = predictions.resize((Config.batch_size*Config.num_steps),predictions.shape[1])
+  loss = criterion(predictions,y.flatten())
+  """Then we compute the loss for the whole set of words"""
+  # J = (1 / T) * sum(J*weights)
+
+
 
   ### END YOUR CODE
   return loss
@@ -251,8 +306,8 @@ def run_epoch(our_model, config, model_optimizer, criterion, data, mode='train',
       x = torch.from_numpy(x).type(torch.LongTensor)
       y = torch.from_numpy(y).type(torch.LongTensor)
       ## if you are using cpu, do not attach x,y to cuda. 
-      x = x.cuda()
-      y = y.cuda()
+      #x = x.cuda()
+      #y = y.cuda()
       outputs, state = our_model(x, state)
       loss = compute_loss(outputs, y, criterion)
       if mode=='train':
@@ -276,14 +331,14 @@ def test_RNNLM():
   config.vocab_size= len(vocab)
   ### Initialize the model. If you are using cpu, do not attach model to cuda.  
   our_model = RNNLM_Model(config)
-  our_model.cuda()
+  #our_model.cuda()
 
   ### define the loss (criterion), optimizer
   ### Hint: the criterion should be CE and SGD might be a good choice for optimizer. 
 
   ### YOUR CODE HERE
-  criterion = 
-  model_optimizer = 
+  criterion = nn.CrossEntropyLoss()
+  model_optimizer = torch.optim.Adam(our_model.parameters(),lr=config.lr)
   ### END YOUR CODE
 
   best_val_pp = float('inf')
