@@ -12,9 +12,9 @@ The main files in the repository are:
 
 # Prerequisites
 
-Python 3.6 or higher
-Pytorch
-Numpy
+- Python 3.6 or higher
+- Pytorch
+- Numpy
 
 # Usage
 
