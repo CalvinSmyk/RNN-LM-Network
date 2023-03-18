@@ -10,15 +10,13 @@ The main files in the repository are:
 
 'train.py': trains the RNNLM model using the Penn Tree Bank dataset
 
-Prerequisites
+# Prerequisites
 
 Python 3.6 or higher
-
 Pytorch
-
 Numpy
 
-Usage
+# Usage
 
 Clone the repository using git clone https://github.com/your-username/rnnlm.git
 
@@ -27,7 +25,7 @@ Train the model using python train.py.
 
 You can modify the hyperparameters of the model in model.py by changing the values of the Config class attributes.
 
-References
+# References
 
 Mikolov, T., Karafiát, M., Burget, L., Černocký, J., & Khudanpur, S. (2010). Recurrent neural network based language model. In Eleventh annual conference of the international speech communication association.
 
